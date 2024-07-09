@@ -4,7 +4,7 @@ const irc = require('irc');
 // MySQL connection setup
 const connection = mysql.createConnection({
     host: 'localhost',
-    user: 'brian',
+    user: process.env.MYSQL_USER, 
     password: process.env.MYSQL_PASSWORD,
     database: 'alliance'
 });
