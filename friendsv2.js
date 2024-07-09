@@ -1,13 +1,13 @@
 const mysql = require('mysql');
+const irc = require('irc');
 
 const connection = mysql.createConnection({
     host: 'localhost',
-    user: process.env.MYSQL_USER, 
+    user: process.env.MYSQL_USER,
     password: process.env.MYSQL_PASSWORD,
     database: 'alliance'
 });
 
-const irc = require('irc');
 const bot = new irc.Client('irc.scourge.se', 'friendtracker', {
     channels: ['#AllianceNetworth hahanoperms'],
     debug: true,
@@ -26,103 +26,58 @@ connection.connect(function(err) {
 
 function changeTracker() {
     const sql = 'SELECT number FROM friends';
-    connection.query(sql, function(error, results, fields) {
+    connection.query(mysql.format(sql), function(error, results) {
         if (error) {
             bot.say("#AllianceNetworth", error);
             return;
         }
-
-        // Iterate through each result
-        results.forEach(function(result) {
-            const num = result.number;
-
-            // Query to get new networth and land
-            let new_nw_query = 'SELECT networth, number, land, tag, alive FROM alliance_ranks WHERE number=?';
-            let inserts = [num];
-            let new_nw_sql = mysql.format(new_nw_query, inserts);
-
-            connection.query(new_nw_sql, function(error, new_nw_results, fields) {
+        for (let i = 0; i < results.length; i++) {
+            const num = results[i].number;
+            const newNwQuery = 'SELECT networth, number, land, tag, alive FROM alliance_ranks WHERE number=?';
+            connection.query(mysql.format(newNwQuery, [num]), function(error, results) {
                 if (error) {
                     bot.say("#AllianceNetworth", error);
                     return;
                 }
-
-                const new_nw = new_nw_results[0].networth;
-                const new_land = new_nw_results[0].land;
-                const aliveCountry = new_nw_results[0].alive;
-
-                // Query to get old networth and land changes
-                let old_nw_query = 'SELECT networth_change, name, number, land_change, tag, online, timeonline, onlinecount, timestamp, targets FROM friends WHERE number=?';
-                inserts = [num];
-                let old_nw_sql = mysql.format(old_nw_query, inserts);
-
-                connection.query(old_nw_sql, function(error, old_nw_results, fields) {
+                const { networth: newNw, land: newLand, number, alive } = results[0];
+                const oldNwQuery = 'SELECT networth_change, name, number, land_change, tag, online, timeonline, onlinecount, timestamp, targets FROM friends WHERE number=?';
+                connection.query(mysql.format(oldNwQuery, [num]), function(error, results) {
                     if (error) {
                         bot.say("#AllianceNetworth", error);
                         return;
                     }
-
-                    const countryName = old_nw_results[0].name;
-                    const countryTag = old_nw_results[0].tag;
-                    const targets = old_nw_results[0].targets;
-                    const countryNumber = old_nw_results[0].number;
-                    const oldNW = old_nw_results[0].networth_change;
-                    const oldLND = old_nw_results[0].land_change;
-
-                    const difference = new_nw - oldNW;
-                    const differenceLND = new_land - oldLND;
-
-                    // Time-related calculations
-                    const getTimeStamp = old_nw_results[0].timestamp;
-                    const tenMinuteStamp = getTimeStamp + 360;
+                    const { name: countryName, tag: countryTag, targets, number: countryNumber, networth_change: oldNW, land_change: oldLND, timestamp: getTimeStamp, online, timeonline, onlinecount } = results[0];
+                    const difference = newNw - oldNW;
+                    const differenceLND = newLand - oldLND;
                     const time = new Date();
                     const seconds = Math.round(time.getTime() / 1000);
-                    const onlineCountry = old_nw_results[0].online;
-                    const onlineCount = old_nw_results[0].onlinecount;
-                    const timeOnline = old_nw_results[0].timeonline;
-                    const tStamp = old_nw_results[0].timestamp;
-                    const differenceTME = (tStamp - timeOnline) / 60;
+                    const tenMinuteStamp = getTimeStamp + 360;
 
-                    // Handle networth increase
                     if (difference > 0) {
-			bot.say("#AllianceNetworth", `\x0309 FRIEND ${countryName} #${countryNumber} (${countryTag}) \x0308 ${new_land}A \x0304 (${differenceLND.toLocaleString()}A) \x0f \x0307 Networth dropped: \x0f ${oldNW.toLocaleString()} to ${new_nw.toLocaleString()} \x0304 (${difference.toLocaleString()})`);
-			
+                        bot.say("#AllianceNetworth", `\x0309 FRIEND #${countryNumber} (${countryTag}) \x0311 ${newLand}A \x0303 (${differenceLND.toLocaleString()}A) \x0f \x0309 Networth increased: \x0f ${oldNW.toLocaleString()} to ${newNw.toLocaleString()} \x0303 (+${difference.toLocaleString()})`);
                         const timeStampUpdate = 'UPDATE friends SET timestamp=?, networth_change=?, land_change=?, cooldown=?, online=?, timeonline=? WHERE number=?';
-                        const updateInserts = [seconds, new_nw, new_land, 0, 1, seconds, countryNumber];
-                        const timeStampQuery = mysql.format(timeStampUpdate, updateInserts);
-
-                        connection.query(timeStampQuery, function(error, updateResults, fields) {
+                        connection.query(mysql.format(timeStampUpdate, [seconds, newNw, newLand, 0, 1, seconds, countryNumber]), function(error) {
                             if (error) {
                                 bot.say("#AllianceNetworth", error);
                             }
                         });
                     }
 
-                    // Handle networth decrease
                     if (difference <= -10000) {
-                        let hasTimeStampQuery = 'SELECT timestamp FROM friends WHERE number=?';
-                        inserts = [countryNumber];
-                        let hasTimeStampSql = mysql.format(hasTimeStampQuery, inserts);
-
-                        connection.query(hasTimeStampSql, function(error, hasTimeStampResults, fields) {
+                        connection.query(mysql.format('SELECT timestamp FROM friends WHERE number=?', [countryNumber]), function(error, results) {
                             if (error) {
                                 bot.say("#AllianceNetworth", error);
                                 return;
                             }
-
-                            const getTimeStamp = hasTimeStampResults[0].timestamp;
+                            const getTimeStamp = results[0].timestamp;
                             const tenMinuteStamp = getTimeStamp + 360;
-                            const time = new Date();
                             const seconds = Math.round(time.getTime() / 1000);
 
                             if (seconds >= tenMinuteStamp) {
                                 if (getTimeStamp <= tenMinuteStamp) {
-                                    bot.say("#AllianceNetworth", `\u000309 FRIEND ${countryName} #${countryNumber} (${countryTag}) \u000308 ${new_land}A \u000304 (${differenceLND.toLocaleString()}A) \u000f \u000307 Networth dropped: \u000f ${oldNW.toLocaleString()} to ${new_nw.toLocaleString()} \u000304 (${difference.toLocaleString()})`);
+                                    bot.say("#AllianceNetworth", `\x0309 FRIEND ${countryName} #${countryNumber} (${countryTag}) \x0308 ${newLand}A \x0304 (${differenceLND.toLocaleString()}A) \x0f \x0307 Networth dropped: \x0f ${oldNW.toLocaleString()} to ${newNw.toLocaleString()} \x0304 (${difference.toLocaleString()})`);
                                     const timeStampUpdate = 'UPDATE friends SET timestamp=?, networth_change=?, land_change=?, cooldown=? WHERE number=?';
-                                    const updateInserts = [seconds, new_nw, new_land, 1, countryNumber];
-                                    const timeStampQuery = mysql.format(timeStampUpdate, updateInserts);
-
-                                    connection.query(timeStampQuery, function(error, updateResults, fields) {
+                                    connection.query(mysql.format(timeStampUpdate, [seconds, newNw, newLand, 1, countryNumber]), function(error) {
                                         if (error) {
                                             bot.say("#AllianceNetworth", error);
                                         }
@@ -133,9 +88,8 @@ function changeTracker() {
                     }
                 });
             });
-        });
+        }
     });
 }
 
 setInterval(changeTracker, 30000);
-
