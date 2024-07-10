@@ -39,12 +39,18 @@ function changeTracker() {
                     bot.say("#AllianceNetworth", error);
                     return;
                 }
+                if (results.length === 0) {
+                    return; // If no results, skip
+                }
                 const { networth: newNw, land: newLand, number, alive } = results[0];
                 const oldNwQuery = 'SELECT networth_change, name, number, land_change, tag, online, timeonline, onlinecount, timestamp, targets FROM friends WHERE number=?';
                 connection.query(mysql.format(oldNwQuery, [num]), function(error, results) {
                     if (error) {
                         bot.say("#AllianceNetworth", error);
                         return;
+                    }
+                    if (results.length === 0) {
+                        return; // If no results, skip
                     }
                     const { name: countryName, tag: countryTag, targets, number: countryNumber, networth_change: oldNW, land_change: oldLND, timestamp: getTimeStamp, online, timeonline, onlinecount } = results[0];
                     const difference = newNw - oldNW;
@@ -61,11 +67,16 @@ function changeTracker() {
                                 bot.say("#AllianceNetworth", error);
                             }
                         });
-                    } else if (difference <= -10000) {
+                    }
+
+                    if (difference < 0 && difference <= -10000) {
                         connection.query(mysql.format('SELECT timestamp FROM friends WHERE number=?', [countryNumber]), function(error, results) {
                             if (error) {
                                 bot.say("#AllianceNetworth", error);
                                 return;
+                            }
+                            if (results.length === 0) {
+                                return; // If no results, skip
                             }
                             const getTimeStamp = results[0].timestamp;
                             const tenMinuteStamp = getTimeStamp + 360;
