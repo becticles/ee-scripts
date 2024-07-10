@@ -61,9 +61,7 @@ function changeTracker() {
                                 bot.say("#AllianceNetworth", error);
                             }
                         });
-                    }
-
-                    if (difference <= -10000) {
+                    } else if (difference <= -10000) {
                         connection.query(mysql.format('SELECT timestamp FROM friends WHERE number=?', [countryNumber]), function(error, results) {
                             if (error) {
                                 bot.say("#AllianceNetworth", error);
@@ -71,18 +69,16 @@ function changeTracker() {
                             }
                             const getTimeStamp = results[0].timestamp;
                             const tenMinuteStamp = getTimeStamp + 360;
-                            const seconds = Math.round(time.getTime() / 1000);
+                            const currentTime = Math.round(new Date().getTime() / 1000);
 
-                            if (seconds >= tenMinuteStamp) {
-                                if (getTimeStamp <= tenMinuteStamp) {
-                                    bot.say("#AllianceNetworth", `\x0309 FRIEND ${countryName} #${countryNumber} (${countryTag}) \x0308 ${newLand}A \x0304 (${differenceLND.toLocaleString()}A) \x0f \x0307 Networth dropped: \x0f ${oldNW.toLocaleString()} to ${newNw.toLocaleString()} \x0304 (${difference.toLocaleString()})`);
-                                    const timeStampUpdate = 'UPDATE friends SET timestamp=?, networth_change=?, land_change=?, cooldown=? WHERE number=?';
-                                    connection.query(mysql.format(timeStampUpdate, [seconds, newNw, newLand, 1, countryNumber]), function(error) {
-                                        if (error) {
-                                            bot.say("#AllianceNetworth", error);
-                                        }
-                                    });
-                                }
+                            if (currentTime >= tenMinuteStamp) {
+                                bot.say("#AllianceNetworth", `\x0309 FRIEND ${countryName} #${countryNumber} (${countryTag}) \x0308 ${newLand}A \x0304 (${differenceLND.toLocaleString()}A) \x0f \x0307 Networth dropped: \x0f ${oldNW.toLocaleString()} to ${newNw.toLocaleString()} \x0304 (${difference.toLocaleString()})`);
+                                const timeStampUpdate = 'UPDATE friends SET timestamp=?, networth_change=?, land_change=?, cooldown=? WHERE number=?';
+                                connection.query(mysql.format(timeStampUpdate, [currentTime, newNw, newLand, 1, countryNumber]), function(error) {
+                                    if (error) {
+                                        bot.say("#AllianceNetworth", error);
+                                    }
+                                });
                             }
                         });
                     }
