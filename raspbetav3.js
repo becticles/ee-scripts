@@ -1,7 +1,7 @@
 const mysql = require('mysql');
 const irc = require('irc');
 
-// MySQL connection
+// MySQL connection setup
 const connection = mysql.createConnection({
     host: 'localhost',
     user: process.env.MYSQL_USER,
@@ -19,15 +19,16 @@ const bot = new irc.Client('irc.scourge.se', 'enemytracker', {
     autoConnect: true,
 });
 
+// Utility to format targets
 const formatTargetList = (arr) => [...new Set(arr.map(t => t.trim()).filter(Boolean))];
 let lastOnlineCount = 0;
-let lastTargetsSet = new Set();
-let lastSeenTimestamps = {};
-let lastRecentCount = 0;
 
+// Main change tracker
 function changeTracker() {
     const currentTime = Math.round(Date.now() / 1000);
+    let activeNowCount = 0, recentCount = 0;
     let activeNowTargets = [], recentTargets = [];
+    let onlineSummaryPosted = false;
 
     connection.query('SELECT number FROM changes', (err, countryIds) => {
         if (err) {
@@ -65,6 +66,7 @@ function changeTracker() {
                     const diffTimeMin = ((currentTime - timeonline) / 60).toFixed(2);
                     const diffSinceChangeMin = ((currentTime - timestamp) / 60).toFixed(2);
 
+                    // Networth Change Alert
                     if (diffNW > 0) {
                         bot.say("#AllianceNetworth",
                             `\u000304 ENEMY #${countryNumber} (${tag}) \u000311 ${newLand}A \u000303 (${(newLand - oldLand).toLocaleString()}A)` +
@@ -80,64 +82,74 @@ function changeTracker() {
                         );
                     }
 
+                    // Currently Online (<= 0.4 mins)
                     if (isOnline && aliveCountry > 0 && diffTimeMin <= 0.4) {
-                        const targetList = targets?.split(',').map(t => t.trim()).filter(Boolean) || [];
-                        targetList.forEach(t => activeNowTargets.push(`${t}|${tag}`));
+                        bot.say("#hire", `${name} \u000307 #${countryNumber} (${tag}) \u000304 Active ${diffTimeMin} mins ago`);
+                        connection.query('UPDATE changes SET timestamp=? WHERE number=?', [currentTime, countryNumber]);
+
+                        if (targets) {
+    const targetList = targets.split(',').map(t => t.trim()).filter(Boolean);
+    activeNowTargets.push(...targetList.map(t => `${t}|${tag}`));
+    activeNowCount += targetList.length;
+}
                     }
 
+                    // Changed Networth in Last 60 mins
                     if (isOnline && aliveCountry > 0 && diffSinceChangeMin <= 60) {
-                        const targetList = targets?.split(',').map(t => t.trim()).filter(Boolean) || [];
-                        targetList.forEach(t => recentTargets.push(`${t}|${tag}`));
+                        if (targets) {
+    const targetList = targets.split(',').map(t => t.trim()).filter(Boolean);
+    recentTargets.push(...targetList.map(t => `${t}|${tag}`));
+    recentCount += targetList.length;
+}
                     }
 
+                    // Post onlinecount + targets summary only if onlinecount changed
+                    if (!onlineSummaryPosted && onlinecount > 0 && targets && onlinecount !== lastOnlineCount) {
+                        const summaryTargets = formatTargetList(targets.split(',').map(t => t.trim()));
+                        if (summaryTargets.length > 0) {
+                            bot.say("#hire", `\u000304 ${onlinecount} Possibly Online: \u000307 ${summaryTargets.join(', ')}`);
+                            lastOnlineCount = onlinecount;
+                            onlineSummaryPosted = true;
+                        }
+                    }
+
+                    // Final summary with breakdown by target and tag
                     if (index === countryIds.length - 1) {
                         const formatTaggedList = (list) => {
                             const grouped = {};
-                            new Set(list).forEach(entry => {
+                            list.forEach(entry => {
                                 const [id, tag] = entry.split('|');
                                 if (!grouped[tag]) grouped[tag] = [];
                                 grouped[tag].push(`#${id}`);
                             });
                             return Object.entries(grouped)
-                                .map(([tag, ids]) => `\u000307 [${tag}]: ${ids.join(', ')}`)
-                                .join(' \u000f ');
+                                .map(([tag, ids]) => `07 [${tag}]: ${ids.join(', ')}`)
+                                .join('  ');
                         };
 
-                        const dedupedRecent = Array.from(new Set(recentTargets));
-                        const dedupedActive = Array.from(new Set(activeNowTargets));
-                        const recentCountNow = dedupedRecent.length;
+                        const nowList = formatTargetList(activeNowTargets);
+                        const recentList = formatTargetList(recentTargets);
 
-                        if (dedupedActive.length > 0) {
-                            bot.say("#hire", `\u000304 ${dedupedActive.length} Possibly Online: \u000307 ${formatTaggedList(dedupedActive)}`);
+                        if (nowList.length > 0) {
+                            bot.say("#hire", `04 ${nowList.length} Possibly Online: ${formatTaggedList(activeNowTargets)}`);
                         }
 
-                        if (recentCountNow > 0 && recentCountNow !== lastRecentCount) {
-                            bot.say("#hire", `\u000304 ${recentCountNow} Possibly Online in last 60 min: \u000307 ${formatTaggedList(dedupedRecent)}`);
-                            lastRecentCount = recentCountNow;
+                        if (recentList.length > 0) {
+                            bot.say("#hire", `04 ${recentList.length} Possibly Online in last 60 min: ${formatTaggedList(recentTargets)}`);
                         }
-                    }
+                                                            }
                 });
+            });
+        });
+    });
+    });
+    });
             });
         });
     });
 }
 
-// Every 30 seconds, run tracker
+// Run every 30 seconds
 setInterval(changeTracker, 30000);
 
-// Offline checker: expire after 60 mins
-setInterval(() => {
-    const now = Date.now() / 1000;
-    const expired = [];
-    for (const [target, timestamp] of Object.entries(lastSeenTimestamps)) {
-        if ((now - timestamp) > 3600) {
-            expired.push(target);
-            lastTargetsSet.delete(target);
-            delete lastSeenTimestamps[target];
-        }
-    }
-    if (expired.length > 0) {
-        bot.say("#hire", `\u000305 Targets assumed offline after 60 minutes: \u000307 #${expired.join(', #')}`);
-    }
-}, 60000);
 
